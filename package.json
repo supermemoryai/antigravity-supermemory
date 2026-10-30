@@ -1,0 +1,24 @@
+{
+  "name": "antigravity-supermemory-dev",
+  "version": "0.1.0",
+  "description": "Supermemory plugin for Google Antigravity (App, CLI, and IDE)",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "build:sdk": "node tools/build-sdk.mjs",
+    "test": "node --test test/unit.mjs",
+    "test:e2e": "node --test --test-concurrency=1 test/e2e.mjs",
+    "validate": "agy plugin validate --strict .",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write ."
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.3.13",
+    "esbuild": "0.25.12",
+    "supermemory": "5.0.3"
+  }
+}

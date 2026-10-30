@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "supermemory": {
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/scripts/mcp-proxy.js"]
+    }
+  }
+}

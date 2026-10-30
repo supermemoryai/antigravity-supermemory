@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  pull_request:
+
+jobs:
+  quality-checks:
+    name: Lint & Test
+    runs-on: "peak-ubuntu-24.04-4"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Biome CI
+        run: npx biome ci .
+
+      - name: Verify bundled SDK
+        run: npm run build:sdk && git diff --exit-code -- scripts/vendor/ && test -z "$(git status --porcelain -- scripts/vendor/)"
+
+      - name: Test
+        run: npm test
+
+  antigravity-e2e:
+    name: Antigravity CLI end to end
+    runs-on: "peak-ubuntu-24.04-4"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Antigravity CLI
+        run: curl -fsSL https://antigravity.google/cli/install.sh | bash -s -- --dir "$HOME/.local/bin"
+
+      - name: Validate plugin
+        run: ~/.local/bin/agy plugin validate --strict .
+
+      - name: End-to-end
+        run: AGY="$HOME/.local/bin/agy" npm run test:e2e

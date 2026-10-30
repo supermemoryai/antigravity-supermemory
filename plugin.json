@@ -1,0 +1,21 @@
+{
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
+  "name": "supermemory",
+  "displayName": "Supermemory",
+  "version": "0.1.0",
+  "description": "Persistent memory for your agent: recalls project context on every prompt and saves what you work on, shared with Claude Code, Codex and Cursor.",
+  "logo": "assets/logo.svg",
+  "suggestedPrompts": [
+    "What do you remember about this project?",
+    "Index this codebase into Supermemory",
+    "Check my Supermemory connection"
+  ],
+  "author": {
+    "name": "Supermemory",
+    "url": "https://supermemory.ai"
+  },
+  "homepage": "https://supermemory.ai",
+  "repository": "https://github.com/supermemoryai/antigravity-supermemory",
+  "license": "MIT",
+  "keywords": ["memory", "supermemory", "context", "recall", "mcp"]
+}

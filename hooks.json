@@ -1,0 +1,37 @@
+{
+  "supermemory": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "node ./scripts/session-start.js",
+        "timeout": 30
+      }
+    ],
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "node ./scripts/recall.js",
+        "timeout": 10
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "call_mcp_tool|mcp_.*supermemory.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ./scripts/recall-approve.js",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "node ./scripts/capture.js",
+        "timeout": 10
+      }
+    ]
+  }
+}
