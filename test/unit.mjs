@@ -354,17 +354,49 @@ describe('status line', () => {
     });
     // biome-ignore lint/suspicious/noControlCharactersInRegex: strips ANSI colors
     const plain = (s) => s.replace(/\x1b\[[0-9;]*m/g, '');
-    const line = plain(render('conv-status'));
-    assert.match(
-      line,
-      /^◪ supermemory · 4 loaded · 2 recalled · saved \d+s ago$/,
+    assert.equal(
+      plain(render('conv-status')),
+      '◪ supermemory · 4 loaded · 2 recalled · 1 saved',
     );
+    // The CLI only redraws on agent state changes, so an in-flight save keeps
+    // showing the settled count instead of a "saving" that would never clear.
     sessionState.writeState('conv-status', 'capture', {
       status: 'saving',
       count: 1,
     });
-    assert.match(plain(render('conv-status')), /saving conversation/);
+    assert.equal(
+      plain(render('conv-status')),
+      '◪ supermemory · 4 loaded · 2 recalled · 1 saved',
+    );
+    sessionState.writeState('conv-status', 'capture', {
+      status: 'error',
+      count: 1,
+    });
+    assert.equal(
+      plain(render('conv-status')),
+      '◪ supermemory · last save failed',
+    );
     assert.equal(plain(render('conv-unknown')), '◪ supermemory');
+  });
+
+  test('leaves out zero counts', () => {
+    sessionState.writeState('conv-empty', 'context', {
+      status: 'ready',
+      memoryItemsLoaded: 0,
+    });
+    sessionState.writeState('conv-empty', 'search', {
+      results: 0,
+      count: 3,
+      memories: 0,
+    });
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: strips ANSI colors
+    const plain = (s) => s.replace(/\x1b\[[0-9;]*m/g, '');
+    assert.equal(plain(render('conv-empty')), '◪ supermemory · ready');
+    sessionState.writeState('conv-empty', 'capture', {
+      status: 'saved',
+      count: 2,
+    });
+    assert.equal(plain(render('conv-empty')), '◪ supermemory · 2 saved');
   });
 });
 

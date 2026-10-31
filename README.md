@@ -55,7 +55,7 @@ the first time you open a project.
 | --- | --- |
 | 🧠 **Direct recall**<br>Before the model answers a new prompt, the hook searches Supermemory with it and injects fresh matches. No tool call, no permission prompt. | 🔎 **Supermemory MCP tools**<br>`search_memory` and `add_memory` load as native tools; `get_profile`, `list_memories`, `forget_memory` and the rest are one call away. Read-only calls are auto-approved. |
 | 💾 **Auto capture**<br>When a turn finishes, the new conversation content is saved in the background, so the agent never waits on the network. | 🏷️ **Shared repo memory**<br>Captures use the repository space shared with Claude Code, Codex, Cursor and OpenCode, with `sm_scope: personal` metadata. |
-| 🧭 **Context gatherer**<br>The `context-gatherer` subagent runs several searches and returns a brief with provenance before big tasks. | 📟 **CLI status line**<br>On by default: `◪ supermemory · 5 loaded · 2 recalled · saved 1m ago` appears under agy's own line. A custom status line is left alone. |
+| 🧭 **Context gatherer**<br>The `context-gatherer` subagent runs several searches and returns a brief with provenance before big tasks. | 📟 **CLI status line**<br>On by default: `◪ supermemory · 5 loaded · 2 recalled · 3 saved` appears under agy's own line. A custom status line is left alone. |
 | 👋 **Session context**<br>Loads profile facts when a conversation starts and says welcome back when you return to a project after 6+ hours. | 🔐 **Browser sign-in**<br>The first conversation opens the Supermemory sign-in; `/supermemory-login` and `/supermemory-logout` switch or disconnect accounts. |
 
 Notices such as `3 memories loaded for my-repo` or `recalled 2 memories (180 tok)`
@@ -196,8 +196,14 @@ node ~/.gemini/config/plugins/supermemory/scripts/cli.js status
 
 The Antigravity CLI status line is on by default. The first conversation after the
 CLI has run on your machine adds it to `~/.gemini/antigravity-cli/settings.json`, and
-it shows from the next `agy` start. A custom status line is never replaced. To turn it
-off (it stays off until you turn it back on with `statusline install`):
+it shows from the next `agy` start. A custom status line is never replaced.
+
+It counts memories loaded at the start of the conversation, memories recalled for your
+prompts, and turns saved. agy redraws the line only when the agent does something, so a
+turn's save is counted from your next prompt, and a new project shows `ready` until its
+first memories are processed (usually a few minutes after the first saves).
+
+To turn it off (it stays off until you turn it back on with `statusline install`):
 
 ```bash
 node ~/.gemini/config/plugins/supermemory/scripts/cli.js statusline uninstall

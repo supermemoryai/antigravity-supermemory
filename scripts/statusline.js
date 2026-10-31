@@ -3,14 +3,18 @@
 // script whenever the agent state changes and shows whatever it prints. Hooks
 // write per-conversation state under ~/.supermemory-antigravity; this script
 // only reads it, so it stays fast (the CLI kills runs over 5 seconds).
+//
+// The CLI never redraws the line on a timer, so whatever it prints stays up
+// until the next prompt or tool call. A save finishes after the turn's last
+// redraw, so "saving…" or "saved 5s ago" would sit there long after it stopped
+// being true. The line shows settled counts instead, which are right whenever
+// they are drawn; a turn's save shows up from the next redraw.
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { STATE_ROOT } = require('./lib/paths');
 
 const SCHEMA_VERSION = 1;
-const SAVING_TTL_MS = 30 * 1000;
-const ERROR_TTL_MS = 60 * 1000;
 const INPUT_TIMEOUT_MS = 500;
 
 const color = !process.env.NO_COLOR;
@@ -19,13 +23,6 @@ const paint = (code, s) => (color ? `\x1b[${code}m${s}\x1b[0m` : s);
 // their theme, so the glyph must clear both dark and light backgrounds.
 const BRAND = `${paint('1;38;2;124;120;250', '◪')} ${paint('1', 'supermemory')}`;
 const dot = paint('38;5;245', ' · ');
-
-function formatAge(ms) {
-  const s = Math.max(1, Math.floor(ms / 1000));
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h`;
-}
 
 function readEvent(conversationId, event) {
   if (!conversationId) return null;
@@ -43,28 +40,27 @@ function readEvent(conversationId, event) {
   }
 }
 
-function render(conversationId, now = Date.now()) {
+function render(conversationId) {
   const context = readEvent(conversationId, 'context');
   const search = readEvent(conversationId, 'search');
   const capture = readEvent(conversationId, 'capture');
 
-  if (capture?.status === 'saving' && now - capture.updatedAt < SAVING_TTL_MS) {
-    return `${BRAND}${dot}saving conversation…`;
-  }
-  if (capture?.status === 'error' && now - capture.updatedAt < ERROR_TTL_MS) {
-    return `${BRAND}${dot}${paint('31', 'save failed')}`;
-  }
   if (context?.status === 'signed_out') return `${BRAND}${dot}signed out`;
   if (context?.status === 'error') return `${BRAND}${dot}not connected`;
+  // Stays until a later save in this conversation goes through.
+  if (capture?.status === 'error') {
+    return `${BRAND}${dot}${paint('31', 'last save failed')}`;
+  }
 
+  // Zero counts are left out: a new project has nothing to load yet, and
+  // fresh saves take a few minutes to become searchable.
   const parts = [];
-  if (context?.status === 'ready')
+  if (context?.memoryItemsLoaded > 0)
     parts.push(`${context.memoryItemsLoaded} loaded`);
   if (search?.memories > 0) parts.push(`${search.memories} recalled`);
-  if (capture?.status === 'saved') {
-    parts.push(`saved ${formatAge(now - capture.updatedAt)} ago`);
-  }
-  return parts.length ? `${BRAND}${dot}${parts.join(dot)}` : BRAND;
+  if (capture?.count > 0) parts.push(`${capture.count} saved`);
+  if (parts.length) return `${BRAND}${dot}${parts.join(dot)}`;
+  return context?.status === 'ready' ? `${BRAND}${dot}ready` : BRAND;
 }
 
 function readInput() {
