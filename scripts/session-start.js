@@ -35,8 +35,23 @@ const {
   loadSettings,
 } = require('./lib/settings');
 const { exitAfterFlush, readStdin, writeOutput } = require('./lib/stdin');
+const { ensureStatusline } = require('./lib/statusline-setup');
 
 const AUTH_BUDGET_MS = 20000;
+
+// The status line is on by default; it also shows when signed out.
+function setupStatusline(settings) {
+  try {
+    return ensureStatusline();
+  } catch (err) {
+    debugLog(settings, 'Status line setup skipped', { error: err.message });
+    return null;
+  }
+}
+
+function joinNotices(...notices) {
+  return notices.filter(Boolean).join('\n\n');
+}
 
 function markTip() {
   try {
@@ -101,6 +116,7 @@ async function main() {
     }
 
     pruneState();
+    const statuslineNotice = setupStatusline(settings);
     writeState(conversationId, 'context', {
       status: 'loading',
       memoryItemsLoaded: 0,
@@ -126,7 +142,10 @@ async function main() {
         writeOutput(
           injectOutput([
             noticeStep(
-              'Signed out — memory is off. Run `/supermemory-login` to turn it back on.',
+              joinNotices(
+                'Signed out — memory is off. Run `/supermemory-login` to turn it back on.',
+                statuslineNotice,
+              ),
             ),
           ]),
         );
@@ -149,9 +168,12 @@ async function main() {
 Supermemory is installed but not connected yet${pending ? ' (the user is signing in through the browser)' : ''}. Memories from earlier sessions are not loaded for this turn. If the user asks, tell them to finish the browser sign-in or run /supermemory-login.
 </supermemory-status>`),
             noticeStep(
-              pending
-                ? 'Finish connecting Supermemory in the browser window (you have 5 minutes). Memory turns on from your next message. If no browser opened, run `/supermemory-login`.'
-                : 'Sign-in did not complete. Run `/supermemory-login` to retry, or set `SUPERMEMORY_ANTIGRAVITY_API_KEY`.',
+              joinNotices(
+                pending
+                  ? 'Finish connecting Supermemory in the browser window (you have 5 minutes). Memory turns on from your next message. If no browser opened, run `/supermemory-login`.'
+                  : 'Sign-in did not complete. Run `/supermemory-login` to retry, or set `SUPERMEMORY_ANTIGRAVITY_API_KEY`.',
+                statuslineNotice,
+              ),
             ),
           ]),
         );
@@ -209,18 +231,14 @@ Memories will be saved as you work.
       : loaded > 0
         ? `${loaded} ${loaded === 1 ? 'memory' : 'memories'} loaded for **${projectName}**`
         : `active · no memories saved for **${projectName}** yet`;
-    const notices = [
+    const notices = joinNotices(
       captureFailureNotice(),
       [headline, welcomeBackNotice(namespace)].filter(Boolean).join(' · '),
+      statuslineNotice,
       markTip(),
-    ].filter(Boolean);
-
-    writeOutput(
-      injectOutput([
-        contextStep(modelContext),
-        noticeStep(notices.join('\n\n')),
-      ]),
     );
+
+    writeOutput(injectOutput([contextStep(modelContext), noticeStep(notices)]));
   } catch (err) {
     const friendly = getUserFriendlyError(err);
     debugLog(settings, 'SessionStart error', { error: friendly });

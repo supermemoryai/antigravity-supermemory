@@ -55,8 +55,8 @@ the first time you open a project.
 | --- | --- |
 | 🧠 **Direct recall**<br>Before the model answers a new prompt, the hook searches Supermemory with it and injects fresh matches. No tool call, no permission prompt. | 🔎 **Supermemory MCP tools**<br>`search_memory` and `add_memory` load as native tools; `get_profile`, `list_memories`, `forget_memory` and the rest are one call away. Read-only calls are auto-approved. |
 | 💾 **Auto capture**<br>When a turn finishes, the new conversation content is saved in the background, so the agent never waits on the network. | 🏷️ **Shared repo memory**<br>Captures use the repository space shared with Claude Code, Codex, Cursor and OpenCode, with `sm_scope: personal` metadata. |
-| 🧭 **Context gatherer**<br>The `context-gatherer` subagent runs several searches and returns a brief with provenance before big tasks. | 🗂️ **Codebase index**<br>`/supermemory-index` saves architecture, conventions and how to run the project as focused memories. |
-| 👋 **Session context**<br>Loads profile facts when a conversation starts and says welcome back when you return to a project after 6+ hours. | 📟 **CLI status line**<br>`/supermemory-statusline` adds `◪ supermemory · 5 loaded · 2 recalled · saved 1m ago` under agy's own line. |
+| 🧭 **Context gatherer**<br>The `context-gatherer` subagent runs several searches and returns a brief with provenance before big tasks. | 📟 **CLI status line**<br>On by default: `◪ supermemory · 5 loaded · 2 recalled · saved 1m ago` appears under agy's own line. A custom status line is left alone. |
+| 👋 **Session context**<br>Loads profile facts when a conversation starts and says welcome back when you return to a project after 6+ hours. | 🔐 **Browser sign-in**<br>The first conversation opens the Supermemory sign-in; `/supermemory-login` and `/supermemory-logout` switch or disconnect accounts. |
 
 Notices such as `3 memories loaded for my-repo` or `recalled 2 memories (180 tok)`
 appear inline in the conversation. They are shown to you only and never sent to the
@@ -182,16 +182,25 @@ spaces allow 1–100 letters, digits, underscores, hyphens, or colons.
 
 | Skill | Description |
 | --- | --- |
-| `/supermemory-index` | Explore the codebase and save its architecture, conventions and how to run it. |
 | `/supermemory-status` | Show sign-in, account, the project's memory space, and API and MCP reachability. |
 | `/supermemory-login` | Connect Supermemory through the browser. |
 | `/supermemory-logout` | Sign out and revoke the stored token. New conversations stop loading and saving memory until you sign in again. |
-| `/supermemory-statusline` | Add or remove the Supermemory line in the Antigravity CLI status bar. |
 
 The same commands are available from a terminal:
 
 ```bash
 node ~/.gemini/config/plugins/supermemory/scripts/cli.js status
+```
+
+### Status line
+
+The Antigravity CLI status line is on by default. The first conversation after the
+CLI has run on your machine adds it to `~/.gemini/antigravity-cli/settings.json`, and
+it shows from the next `agy` start. A custom status line is never replaced. To turn it
+off (it stays off until you turn it back on with `statusline install`):
+
+```bash
+node ~/.gemini/config/plugins/supermemory/scripts/cli.js statusline uninstall
 ```
 
 For a one-off save, ask the agent to use `add_memory`. Without a `namespace`, the

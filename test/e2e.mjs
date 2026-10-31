@@ -118,11 +118,9 @@ describe('agy end to end', { skip: !AGY && 'agy not installed' }, () => {
     assert.equal(plugin.name, 'supermemory');
     assert.equal(plugin.enabled, true);
     assert.deepEqual(plugin.skills.sort(), [
-      'supermemory-index',
       'supermemory-login',
       'supermemory-logout',
       'supermemory-status',
-      'supermemory-statusline',
     ]);
     assert.deepEqual(plugin.agents, ['context-gatherer']);
     assert.deepEqual(plugin.mcpServers, ['supermemory']);

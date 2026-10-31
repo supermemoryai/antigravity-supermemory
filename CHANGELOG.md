@@ -14,7 +14,6 @@ First release for Antigravity App, CLI (`agy` 1.4+) and IDE.
 - Bundled MCP server bridges to the hosted Supermemory MCP with the hooks' credentials,
   scopes calls to the repository through workspace roots, and loads `search_memory` and
   `add_memory` as native tools.
-- Skills: `supermemory-index`, `supermemory-status`, `supermemory-login`,
-  `supermemory-logout`, `supermemory-statusline`.
+- Skills: `supermemory-status`, `supermemory-login`, `supermemory-logout`.
 - `context-gatherer` subagent and an always-on rule.
-- Optional status line for the Antigravity CLI.
+- Antigravity CLI status line, on by default and never replacing a custom one.

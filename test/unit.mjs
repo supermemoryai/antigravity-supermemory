@@ -869,61 +869,156 @@ describe('MCP proxy', () => {
   });
 });
 
-describe('cli', () => {
-  test('statusline install keeps a custom line and uninstall removes only its own', async () => {
-    const home = tempDir('sm-agy-clihome-');
-    const settingsFile = path.join(
-      home,
-      '.gemini',
-      'antigravity-cli',
-      'settings.json',
-    );
-    const run = (...args) =>
-      new Promise((resolve) => {
-        const child = spawn(
-          process.execPath,
-          [path.join(ROOT, 'scripts', 'cli.js'), ...args],
-          {
-            env: { PATH: process.env.PATH, HOME: home, USERPROFILE: home },
-          },
-        );
-        let out = '';
-        child.stdout.on('data', (c) => {
-          out += c;
-        });
-        child.on('close', () => resolve(out));
+describe('status line setup', () => {
+  let api;
+  before(async () => {
+    api = await startMockApi();
+  });
+  after(() => api.close());
+
+  const cliSettingsFile = (home) =>
+    path.join(home, '.gemini', 'antigravity-cli', 'settings.json');
+  const readCliSettings = (home) =>
+    JSON.parse(fs.readFileSync(cliSettingsFile(home), 'utf8'));
+  const writeCliSettings = (home, value) => {
+    fs.mkdirSync(path.dirname(cliSettingsFile(home)), { recursive: true });
+    fs.writeFileSync(cliSettingsFile(home), JSON.stringify(value));
+  };
+  const launcher = (home) =>
+    path.join(home, '.supermemory-antigravity', 'statusline.js');
+
+  function runNode(file, args, home, input = '') {
+    return new Promise((resolve) => {
+      const child = spawn(process.execPath, [file, ...args], {
+        env: { PATH: process.env.PATH, HOME: home, USERPROFILE: home },
       });
-
-    fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
-    fs.writeFileSync(
-      settingsFile,
-      JSON.stringify({
-        theme: 'dark',
-        statusLine: { type: 'command', command: 'mine.sh' },
-      }),
-    );
-    assert.match(
-      await run('statusline', 'install'),
-      /custom status line is already configured/,
-    );
-    assert.equal(
-      JSON.parse(fs.readFileSync(settingsFile, 'utf8')).statusLine.command,
-      'mine.sh',
-    );
-
-    fs.writeFileSync(settingsFile, JSON.stringify({ theme: 'dark' }));
-    assert.match(await run('statusline', 'install'), /installed/);
-    const installed = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
-    assert.equal(installed.theme, 'dark');
-    assert.equal(installed.statusLine.stack_with_default, true);
-    assert.match(installed.statusLine.command, /scripts\/statusline\.js"$/);
-
-    assert.match(await run('statusline', 'uninstall'), /removed/);
-    assert.deepEqual(JSON.parse(fs.readFileSync(settingsFile, 'utf8')), {
-      theme: 'dark',
+      let out = '';
+      child.stdout.on('data', (c) => {
+        out += c;
+      });
+      child.on('close', (code) => resolve({ code, out }));
+      child.stdin.end(input);
     });
+  }
+  const cli = (home, ...args) =>
+    runNode(path.join(ROOT, 'scripts', 'cli.js'), args, home).then(
+      (r) => r.out,
+    );
+
+  async function sessionStart(home) {
+    const { json } = await runScript(
+      'session-start.js',
+      {
+        conversationId: `conv-${crypto.randomUUID()}`,
+        workspacePaths: [makeRepo()],
+        transcriptPath: path.join(home, 'missing.jsonl'),
+        lastUserInput: 'Where were we on the deploy work?',
+      },
+      hookEnv(home, api),
+    );
+    return noticeText(json);
+  }
+
+  test('SessionStart turns the CLI status line on once and respects its removal', async () => {
+    const home = tempDir('sm-agy-slhome-');
+    // App-only machines have no CLI settings to change.
+    assert.doesNotMatch(await sessionStart(home), /status bar/);
+    assert.equal(fs.existsSync(cliSettingsFile(home)), false);
+
+    writeCliSettings(home, { trustedWorkspaces: ['/work'] });
+    assert.match(await sessionStart(home), /status bar/);
+    const settings = readCliSettings(home);
+    assert.deepEqual(settings.trustedWorkspaces, ['/work']);
+    assert.deepEqual(settings.statusLine, {
+      type: 'command',
+      command: `node "${launcher(home)}"`,
+      stack_with_default: true,
+    });
+    const line = await runNode(launcher(home), [], home, '{}');
+    assert.equal(line.code, 0);
+    assert.match(line.out, /supermemory/);
+
+    assert.doesNotMatch(await sessionStart(home), /status bar/);
+    delete settings.statusLine;
+    writeCliSettings(home, settings);
+    await sessionStart(home);
+    assert.equal(readCliSettings(home).statusLine, undefined);
+    assert.match(await cli(home, 'statusline', 'status'), /off/);
   });
 
+  test('SessionStart keeps a custom line and moves a direct entry to the launcher', async () => {
+    const home = tempDir('sm-agy-slhome-');
+    writeCliSettings(home, {
+      statusLine: { type: 'command', command: 'mine.sh' },
+    });
+    await sessionStart(home);
+    assert.equal(readCliSettings(home).statusLine.command, 'mine.sh');
+
+    // Written by builds that pointed the CLI straight at the plugin script.
+    const direct = `node "${path.join(ROOT, 'scripts', 'statusline.js')}"`;
+    writeCliSettings(home, {
+      statusLine: { type: 'command', command: direct },
+    });
+    fs.writeFileSync(
+      path.join(home, '.supermemory-antigravity', 'statusline-installed.json'),
+      JSON.stringify({ command: direct }),
+    );
+    assert.doesNotMatch(await sessionStart(home), /status bar/);
+    assert.equal(
+      readCliSettings(home).statusLine.command,
+      `node "${launcher(home)}"`,
+    );
+  });
+
+  test('statusline install keeps a custom line and uninstall keeps it off', async () => {
+    const home = tempDir('sm-agy-clihome-');
+    writeCliSettings(home, {
+      theme: 'dark',
+      statusLine: { type: 'command', command: 'mine.sh' },
+    });
+    assert.match(
+      await cli(home, 'statusline', 'install'),
+      /custom status line is already configured/,
+    );
+    assert.equal(readCliSettings(home).statusLine.command, 'mine.sh');
+
+    writeCliSettings(home, { theme: 'dark' });
+    assert.match(await cli(home, 'statusline', 'install'), /turned on/);
+    assert.equal(readCliSettings(home).statusLine.stack_with_default, true);
+    assert.match(await cli(home, 'statusline', 'status'), /: on/);
+
+    assert.match(await cli(home, 'statusline', 'uninstall'), /turned off/);
+    assert.deepEqual(readCliSettings(home), { theme: 'dark' });
+    await sessionStart(home);
+    assert.deepEqual(readCliSettings(home), { theme: 'dark' });
+  });
+
+  test('the launcher prints nothing once the plugin is removed', async () => {
+    const home = tempDir('sm-agy-clihome-');
+    const plugin = tempDir('sm-agy-plugin-');
+    fs.cpSync(path.join(ROOT, 'scripts'), path.join(plugin, 'scripts'), {
+      recursive: true,
+    });
+    fs.copyFileSync(
+      path.join(ROOT, 'plugin.json'),
+      path.join(plugin, 'plugin.json'),
+    );
+    writeCliSettings(home, {});
+    await runNode(
+      path.join(plugin, 'scripts', 'cli.js'),
+      ['statusline', 'install'],
+      home,
+    );
+    assert.match((await runNode(launcher(home), [], home, '{}')).out, /◪/);
+
+    fs.rmSync(plugin, { recursive: true, force: true });
+    const gone = await runNode(launcher(home), [], home, '{}');
+    assert.equal(gone.code, 0);
+    assert.equal(gone.out, '');
+  });
+});
+
+describe('cli', () => {
   test('status reports a missing sign-in without credentials', async () => {
     const home = tempDir('sm-agy-statushome-');
     const repo = makeRepo();

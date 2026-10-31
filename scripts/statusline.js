@@ -87,12 +87,15 @@ function readInput() {
   });
 }
 
-if (require.main === module) {
-  readInput().then((input) => {
+function main() {
+  return readInput().then((input) => {
     process.stdout.write(
       `${render(input.conversation_id || input.session_id)}\n`,
     );
   });
 }
 
-module.exports = { render };
+// The CLI runs this through the launcher under ~/.supermemory-antigravity.
+if (require.main === module) main();
+
+module.exports = { main, render };

@@ -7,7 +7,7 @@
   "logo": "assets/logo.svg",
   "suggestedPrompts": [
     "What do you remember about this project?",
-    "Index this codebase into Supermemory",
+    "Search Supermemory for what we decided last time",
     "Check my Supermemory connection"
   ],
   "author": {

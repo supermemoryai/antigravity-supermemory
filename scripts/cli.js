@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 // Command-line entry point used by the plugin's skills and by people directly:
 //   node scripts/cli.js <login|logout|status|statusline|version> [options]
-const crypto = require('node:crypto');
-const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { getProfile } = require('./lib/api');
 const {
@@ -16,7 +13,6 @@ const {
 } = require('./lib/auth');
 const { getNamespace, getProjectName } = require('./lib/container-tag');
 const { getUserFriendlyError } = require('./lib/error-helpers');
-const { PLUGIN_ROOT, STATUSLINE_MARKER_FILE } = require('./lib/paths');
 const { loadProjectConfig } = require('./lib/project-config');
 const {
   getApiKeySource,
@@ -26,17 +22,14 @@ const {
   getMcpUrl,
   getRecallConfig,
 } = require('./lib/settings');
+const {
+  installStatusline,
+  statuslineState,
+  uninstallStatusline,
+} = require('./lib/statusline-setup');
 const { PLUGIN_VERSION, SOURCE } = require('./lib/version');
 
 const AGENT_LOGIN_WAIT_MS = 25000;
-
-function cliSettingsFile() {
-  return path.join(os.homedir(), '.gemini', 'antigravity-cli', 'settings.json');
-}
-
-function statuslineCommand() {
-  return `node "${path.join(PLUGIN_ROOT, 'scripts', 'statusline.js')}"`;
-}
 
 function argValue(args, name) {
   const index = args.indexOf(name);
@@ -98,17 +91,6 @@ async function fetchSession(baseUrl, apiKey) {
     } catch {}
   }
   return null;
-}
-
-function statuslineState() {
-  try {
-    const settings = JSON.parse(fs.readFileSync(cliSettingsFile(), 'utf8'));
-    const command = settings?.statusLine?.command;
-    if (!command) return 'not installed';
-    return command === statuslineCommand() ? 'installed' : 'custom status line';
-  } catch {
-    return 'not installed';
-  }
 }
 
 async function status(args) {
@@ -216,78 +198,29 @@ function finish(report, args) {
   console.log(lines.join('\n'));
 }
 
-function writeJsonAtomic(file, value) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const temporary = path.join(
-    path.dirname(file),
-    `.${path.basename(file)}.${crypto.randomUUID()}.tmp`,
-  );
-  try {
-    fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, {
-      flag: 'wx',
-    });
-    fs.renameSync(temporary, file);
-  } finally {
-    fs.rmSync(temporary, { force: true });
-  }
-}
-
-function readCliSettings() {
-  const file = cliSettingsFile();
-  if (!fs.existsSync(file)) return {};
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch (error) {
-    throw new Error(
-      `${file} is not valid JSON (${error.message}). Fix it and rerun; nothing was changed.`,
-    );
-  }
-}
-
-// The status line is an Antigravity CLI setting, not a plugin component, so
-// installing it edits ~/.gemini/antigravity-cli/settings.json. An existing
-// custom line is left alone; uninstall removes only the entry written here.
+// The status line turns itself on at SessionStart; these commands turn it
+// back on after a removal, or off for good.
 function statusline(args) {
   const action = args[0] || 'status';
-  const command = statuslineCommand();
   if (action === 'status') {
     console.log(`Status line: ${statuslineState()}`);
     return;
   }
-  const settings = readCliSettings();
   if (action === 'install') {
-    const existing = settings.statusLine;
-    if (existing?.command && existing.command !== command) {
-      console.log(
-        `A custom status line is already configured (${existing.command}); Supermemory's line was not added. Remove it first, or run its output alongside with "stack_with_default": true.`,
-      );
-      return;
-    }
-    settings.statusLine = {
-      type: 'command',
-      command,
-      stack_with_default: true,
-    };
-    writeJsonAtomic(cliSettingsFile(), settings);
-    writeJsonAtomic(STATUSLINE_MARKER_FILE, { command });
+    const { custom } = installStatusline();
     console.log(
-      'Supermemory status line installed under the built-in one. Restart agy to see it.',
+      custom
+        ? `A custom status line is already configured (${custom}); Supermemory's line was not added. Remove it first to use Supermemory's.`
+        : 'Supermemory status line turned on under the built-in one. Restart agy to see it.',
     );
     return;
   }
   if (action === 'uninstall') {
-    let marker = null;
-    try {
-      marker = JSON.parse(fs.readFileSync(STATUSLINE_MARKER_FILE, 'utf8'));
-    } catch {}
-    if (settings.statusLine?.command === (marker?.command || command)) {
-      delete settings.statusLine;
-      writeJsonAtomic(cliSettingsFile(), settings);
-      console.log('Supermemory status line removed. Restart agy to apply.');
-    } else {
-      console.log('No Supermemory status line is installed.');
-    }
-    fs.rmSync(STATUSLINE_MARKER_FILE, { force: true });
+    console.log(
+      uninstallStatusline()
+        ? 'Supermemory status line turned off. Restart agy to apply.'
+        : 'No Supermemory status line is configured; it will stay off.',
+    );
     return;
   }
   throw new Error('Usage: statusline <install|uninstall|status>');
@@ -299,7 +232,7 @@ const HELP = `Usage: node scripts/cli.js <command>
   logout                Sign out and revoke the stored token
   status [--json]       Show sign-in, project memory space, and API reachability
   statusline <install|uninstall|status>
-                        Manage the Antigravity CLI status line
+                        Turn the Antigravity CLI status line on or off (on by default)
   version               Print the plugin version
 
 Options: --cwd <path> selects the project (default: current directory).`;
@@ -341,4 +274,4 @@ function main(argv) {
 
 if (require.main === module) main(process.argv.slice(2));
 
-module.exports = { main, run, statuslineCommand };
+module.exports = { main, run };
