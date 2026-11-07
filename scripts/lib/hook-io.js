@@ -1,3 +1,4 @@
+const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -64,6 +65,45 @@ function isSubagent(input) {
   );
 }
 
+const PRINT_FLAGS = new Set(['-p', '--print', '--prompt']);
+
+function processInfo(pid) {
+  if (process.platform === 'linux') {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    return {
+      ppid: Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[1]),
+      argv: fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0'),
+    };
+  }
+  const [ppid, ...argv] = execFileSync(
+    'ps',
+    ['-o', 'ppid=,args=', '-p', String(pid)],
+    {
+      encoding: 'utf8',
+      timeout: 1000,
+    },
+  )
+    .trim()
+    .split(/\s+/);
+  return { ppid: Number(ppid), argv };
+}
+
+// agy runs hooks through a shell and puts no print-mode flag in the payload, so read `agy -p` off the CLI's own argv.
+function isHeadless() {
+  if (process.platform === 'win32') return false;
+  try {
+    let pid = process.ppid;
+    for (let depth = 0; depth < 4 && pid > 1; depth++) {
+      const { ppid, argv } = processInfo(pid);
+      if (/^agy(\.exe)?$/.test(path.basename(argv[0] || ''))) {
+        return argv.slice(1).some((arg) => PRINT_FLAGS.has(arg.split('=')[0]));
+      }
+      pid = ppid;
+    }
+  } catch {}
+  return false;
+}
+
 // A system message persists in the conversation, so the model keeps seeing it
 // on later turns (like Claude Code's additionalContext).
 function contextStep(text) {
@@ -91,6 +131,7 @@ module.exports = {
   contextStep,
   getWorkspace,
   injectOutput,
+  isHeadless,
   isSubagent,
   noticeStep,
 };

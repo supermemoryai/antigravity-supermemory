@@ -37,6 +37,7 @@ const DEFAULT_SETTINGS = {
     'deprecate',
   ],
   signalTurnsBefore: 3,
+  captureHeadless: false,
 };
 
 function loadSettings() {
@@ -242,6 +243,13 @@ function getSignalConfig(cwd) {
   return { enabled, keywords, turnsBefore };
 }
 
+function captureHeadless(settings) {
+  return (
+    process.env.SUPERMEMORY_CAPTURE_HEADLESS === 'true' ||
+    settings.captureHeadless === true
+  );
+}
+
 function getRecallConfig(cwd) {
   const settings = loadSettings();
   const projectConfig = loadProjectConfig(cwd);
@@ -253,6 +261,7 @@ function getRecallConfig(cwd) {
 
 module.exports = {
   BASE_URL,
+  captureHeadless,
   DEFAULT_SETTINGS,
   debugLog,
   getApiKeySource,

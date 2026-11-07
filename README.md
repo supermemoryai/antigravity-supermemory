@@ -93,6 +93,12 @@ else fails, they return cleanly and your conversation continues. A failed save i
 reported when the next conversation starts. Subagent conversations neither recall nor
 capture; the parent conversation does.
 
+Print-mode runs (`agy -p`, also `--print` and `--prompt`) skip Supermemory entirely by
+default: no session context, recall or capture, so scripted and CI runs stay out of your
+memory. Antigravity puts no print-mode flag in hook payloads, so the hooks read it from
+the `agy` command line. Set `captureHeadless: true` in the global settings, or
+`SUPERMEMORY_CAPTURE_HEADLESS=true`, to restore recall and capture there.
+
 ### Shared Agents memory
 
 Antigravity, Claude Code, Codex, Cursor and OpenCode generate the same space for a
@@ -124,6 +130,7 @@ is honored too, so both agents keep using the same space.
 | `SUPERMEMORY_REPO_TAG` | Project space override, used when no project setting is set. |
 | `SUPERMEMORY_ISOLATE_WORKTREES` | `true` keys the project space on the worktree path instead of the Git remote. |
 | `SUPERMEMORY_DEBUG` | `true` writes debug logs to `~/.supermemory-antigravity/debug.log`. |
+| `SUPERMEMORY_CAPTURE_HEADLESS` | `true` turns recall and capture back on for `agy -p` runs, like the `captureHeadless` setting. |
 
 Antigravity passes its environment to hooks and MCP servers. For the App or IDE
 launched from the Dock, prefer browser sign-in or the project config over shell
@@ -151,6 +158,7 @@ variables.
 | `signalTurnsBefore` | Context turns kept before a signal turn (default: 3). |
 | `includeTools` | Tool calls and results to capture, by name (`run_command`, `view_file`, an MCP tool such as `search_memory`, or `server/tool`). |
 | `debug` | Enable debug logging (default: false). |
+| `captureHeadless` | `true` turns session context, recall and capture back on for `agy -p` runs (default: false). |
 
 ### Project config (`.agents/.supermemory/config.json`)
 

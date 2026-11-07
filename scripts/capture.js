@@ -2,9 +2,14 @@ const { spawn } = require('node:child_process');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { getWorkspace, isSubagent } = require('./lib/hook-io');
+const { getWorkspace, isHeadless, isSubagent } = require('./lib/hook-io');
 const { PENDING_DIR } = require('./lib/paths');
-const { debugLog, isConfigured, loadSettings } = require('./lib/settings');
+const {
+  captureHeadless,
+  debugLog,
+  isConfigured,
+  loadSettings,
+} = require('./lib/settings');
 const { exitAfterFlush, readStdin, writeOutput } = require('./lib/stdin');
 
 // Antigravity hooks are synchronous: the turn does not finish until Stop
@@ -23,7 +28,8 @@ async function main() {
       !cwd ||
       !input.conversationId ||
       !input.transcriptPath ||
-      !isConfigured(cwd)
+      !isConfigured(cwd) ||
+      (!captureHeadless(settings) && isHeadless())
     ) {
       writeOutput(ALLOW_STOP);
       return;
