@@ -124,7 +124,7 @@ async function main() {
       isSubagent(input) ||
       !cwd ||
       !firstCallOfTurn ||
-      (!captureHeadless(settings) && isHeadless())
+      (!captureHeadless(settings) && isHeadless(input.conversationId))
     ) {
       writeOutput({});
       return;

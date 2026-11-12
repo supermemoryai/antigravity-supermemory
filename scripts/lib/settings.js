@@ -243,10 +243,17 @@ function getSignalConfig(cwd) {
   return { enabled, keywords, turnsBefore };
 }
 
+// true/1/yes/on or false/0/no/off, any case; anything else leaves the setting.
+function envFlag(name) {
+  const value = process.env[name]?.trim().toLowerCase() ?? '';
+  if (['true', '1', 'yes', 'on'].includes(value)) return true;
+  if (['false', '0', 'no', 'off'].includes(value)) return false;
+  return undefined;
+}
+
 function captureHeadless(settings) {
   return (
-    process.env.SUPERMEMORY_CAPTURE_HEADLESS === 'true' ||
-    settings.captureHeadless === true
+    envFlag('SUPERMEMORY_CAPTURE_HEADLESS') ?? settings.captureHeadless === true
   );
 }
 
