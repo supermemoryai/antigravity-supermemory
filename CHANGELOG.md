@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 - `agy -p` (print mode) runs make no Supermemory calls by default: no session context,
   recall or capture. Set `captureHeadless: true` in `~/.supermemory-antigravity/settings.json`

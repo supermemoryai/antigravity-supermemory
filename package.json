@@ -1,6 +1,6 @@
 {
   "name": "antigravity-supermemory-dev",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Supermemory plugin for Google Antigravity (App, CLI, and IDE)",
   "private": true,
   "type": "commonjs",
