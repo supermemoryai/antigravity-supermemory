@@ -1,6 +1,7 @@
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
+const { readSessionJson, writeSessionJson } = require('./session-state');
 
 const MARK = '◪';
 
@@ -66,6 +67,28 @@ function isSubagent(input) {
 }
 
 const PRINT_FLAGS = new Set(['-p', '--print', '--prompt']);
+const INTERACTIVE_FLAGS = new Set(['-i', '--prompt-interactive']);
+const VALUE_FLAGS = new Set([
+  '--add-dir',
+  '--agent',
+  '--conversation',
+  '--effort',
+  '--input-format',
+  '--json-schema',
+  '--log-file',
+  '--mode',
+  '--model',
+  '--output-format',
+  '--print-timeout',
+  '--project',
+  '--settings',
+]);
+const ORCHESTRATOR_ENV = [
+  'CONDUCTOR_WORKSPACE_PATH',
+  'CONDUCTOR_SESSION_ID',
+  'VK_WORKSPACE_ID',
+];
+const HEADLESS_FILE = 'headless.json';
 
 function processInfo(pid) {
   if (process.platform === 'linux') {
@@ -88,20 +111,65 @@ function processInfo(pid) {
   return { ppid: Number(ppid), argv };
 }
 
-// agy runs hooks through a shell and puts no print-mode flag in the payload, so read `agy -p` off the CLI's own argv.
-function isHeadless() {
-  if (process.platform === 'win32') return false;
+// Only option tokens before the first positional count, so prompt text (split on spaces by macOS ps) is never read as a flag.
+function isPrintArgv(args) {
+  let print = false;
+  for (let i = 0; i < args.length; i++) {
+    const separator = args[i].indexOf('=');
+    const name = separator < 0 ? args[i] : args[i].slice(0, separator);
+    if (!name.startsWith('-') || name === '--') break;
+    if (INTERACTIVE_FLAGS.has(name)) return false;
+    if (PRINT_FLAGS.has(name))
+      print = separator < 0 || args[i].slice(separator + 1) !== 'false';
+    if (VALUE_FLAGS.has(name) && separator < 0) i++;
+  }
+  return print;
+}
+
+// The nearest `agy` ancestor, null when there is none, undefined when the process table can't be read.
+function findAgy() {
   try {
     let pid = process.ppid;
     for (let depth = 0; depth < 4 && pid > 1; depth++) {
       const { ppid, argv } = processInfo(pid);
       if (/^agy(\.exe)?$/.test(path.basename(argv[0] || ''))) {
-        return argv.slice(1).some((arg) => PRINT_FLAGS.has(arg.split('=')[0]));
+        return { pid, argv };
       }
       pid = ppid;
     }
-  } catch {}
-  return false;
+    return null;
+  } catch {
+    return undefined;
+  }
+}
+
+function isAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === 'EPERM';
+  }
+}
+
+// agy runs hooks through a shell and puts no print-mode flag in the payload, so read `agy -p` off the CLI's own argv, once per agy process and conversation.
+function isHeadless(conversationId) {
+  if (process.platform === 'win32') return false;
+  if (ORCHESTRATOR_ENV.some((name) => process.env[name])) return false;
+  const cached = readSessionJson(conversationId, HEADLESS_FILE);
+  if (
+    typeof cached?.headless === 'boolean' &&
+    (cached.pid === null || isAlive(cached.pid))
+  )
+    return cached.headless;
+  const agy = findAgy();
+  if (agy === undefined) return false;
+  const headless = Boolean(agy && isPrintArgv(agy.argv.slice(1)));
+  writeSessionJson(conversationId, HEADLESS_FILE, {
+    pid: agy ? agy.pid : null,
+    headless,
+  });
+  return headless;
 }
 
 // A system message persists in the conversation, so the model keeps seeing it
@@ -132,6 +200,7 @@ module.exports = {
   getWorkspace,
   injectOutput,
   isHeadless,
+  isPrintArgv,
   isSubagent,
   noticeStep,
 };

@@ -400,6 +400,141 @@ describe('status line', () => {
   });
 });
 
+describe('print mode detection', { skip: process.platform === 'win32' }, () => {
+  const { isPrintArgv } = require('../scripts/lib/hook-io.js');
+  let api;
+  before(async () => {
+    api = await startMockApi();
+  });
+  after(() => api.close());
+
+  test('reads only option tokens before the first positional', () => {
+    assert.equal(isPrintArgv(['-p', 'hi']), true);
+    assert.equal(
+      isPrintArgv(['--model', 'gemini', '--print=true', 'hi']),
+      true,
+    );
+    assert.equal(
+      isPrintArgv(['--prompt', 'how', 'does', 'git', 'add', '-p']),
+      true,
+    );
+    assert.equal(isPrintArgv(['-i', 'explain', 'what', '-p', 'does']), false);
+    assert.equal(isPrintArgv(['--prompt-interactive', 'x', '-p']), false);
+    assert.equal(isPrintArgv(['explain', '-p']), false);
+    assert.equal(isPrintArgv(['--model', '-p']), false);
+    assert.equal(isPrintArgv(['--print=false']), false);
+    assert.equal(isPrintArgv(['acp']), false);
+  });
+
+  // Runs a hook the way agy does (agy -> sh -> node): a process named agy with exactly these arguments.
+  function runUnderAgy(script, payload, env, agyArgs, preload) {
+    const dir = tempDir('sm-agy-bin-');
+    const agy = path.join(dir, 'agy');
+    fs.symlinkSync(process.execPath, agy);
+    const launcher = path.join(dir, 'launcher.cjs');
+    fs.writeFileSync(
+      launcher,
+      "delete process.env.NODE_OPTIONS;\nconst r = require('node:child_process').spawnSync('/bin/sh', ['-c', process.env.AGY_HOOK], { stdio: 'inherit' });\nprocess.exit(r.status ?? 1);\n",
+    );
+    const hook = [
+      process.execPath,
+      ...(preload ? ['-r', preload] : []),
+      path.join(ROOT, 'scripts', script),
+    ];
+    return new Promise((resolve, reject) => {
+      const child = spawn(agy, agyArgs, {
+        cwd: ROOT,
+        env: {
+          PATH: process.env.PATH,
+          ...env,
+          NODE_OPTIONS: `--require ${launcher}`,
+          AGY_HOOK: hook.map((part) => `'${part}'`).join(' '),
+        },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      child.on('error', reject);
+      child.on('close', resolve);
+      child.stdin.end(JSON.stringify(payload));
+    });
+  }
+
+  function setup(extra = {}) {
+    const home = tempDir('sm-agy-printhome-');
+    const repo = makeRepo();
+    api.requests.length = 0;
+    return {
+      home,
+      env: hookEnv(home, api, extra),
+      payload: {
+        conversationId: `conv-${crypto.randomUUID()}`,
+        workspacePaths: [repo],
+        transcriptPath: path.join(repo, 'missing.jsonl'),
+        lastUserInput: 'How do we deploy this service to staging safely?',
+        invocationNum: 0,
+        initialNumSteps: 1,
+      },
+    };
+  }
+
+  const searched = () => api.requests.some((r) => r.url.endsWith('/search'));
+
+  test('agy -p recalls nothing and caches the verdict for the conversation', async () => {
+    const { home, env, payload } = setup();
+    await runUnderAgy('recall.js', payload, env, ['-p', 'hi']);
+    assert.equal(searched(), false);
+    const sessionDir = sessionState
+      .getSessionDir(payload.conversationId)
+      .replace(HOME, home);
+    const cached = JSON.parse(
+      fs.readFileSync(path.join(sessionDir, 'headless.json'), 'utf8'),
+    );
+    assert.equal(cached.headless, true);
+    assert.ok(Number.isInteger(cached.pid));
+  });
+
+  test('Conductor and Vibe Kanban runs are recalled even in print mode', async () => {
+    for (const name of [
+      'CONDUCTOR_WORKSPACE_PATH',
+      'CONDUCTOR_SESSION_ID',
+      'VK_WORKSPACE_ID',
+    ]) {
+      const { env, payload } = setup({ [name]: 'x' });
+      await runUnderAgy('recall.js', payload, env, ['-p', 'hi']);
+      assert.equal(searched(), true, name);
+    }
+  });
+
+  test('a prompt containing -p stays interactive when read through ps', async () => {
+    const preload = path.join(tempDir(), 'darwin.cjs');
+    fs.writeFileSync(
+      preload,
+      "Object.defineProperty(process, 'platform', { value: 'darwin' });\n",
+    );
+    const { env, payload } = setup();
+    await runUnderAgy(
+      'recall.js',
+      payload,
+      env,
+      ['-i', 'explain what -p does'],
+      preload,
+    );
+    assert.equal(searched(), true);
+  });
+
+  test('SUPERMEMORY_CAPTURE_HEADLESS=0 overrides captureHeadless in settings', async () => {
+    const { home, env, payload } = setup({ SUPERMEMORY_CAPTURE_HEADLESS: '0' });
+    fs.mkdirSync(path.join(home, '.supermemory-antigravity'), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(home, '.supermemory-antigravity', 'settings.json'),
+      JSON.stringify({ captureHeadless: true }),
+    );
+    await runUnderAgy('recall.js', payload, env, ['-p', 'hi']);
+    assert.equal(searched(), false);
+  });
+});
+
 describe('hooks', () => {
   let api;
   let home;

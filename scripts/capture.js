@@ -29,7 +29,7 @@ async function main() {
       !input.conversationId ||
       !input.transcriptPath ||
       !isConfigured(cwd) ||
-      (!captureHeadless(settings) && isHeadless())
+      (!captureHeadless(settings) && isHeadless(input.conversationId))
     ) {
       writeOutput(ALLOW_STOP);
       return;
