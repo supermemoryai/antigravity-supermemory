@@ -7,6 +7,7 @@ const {
   contextStep,
   getWorkspace,
   injectOutput,
+  isHeadless,
   isSubagent,
   noticeStep,
 } = require('./lib/hook-io');
@@ -19,6 +20,7 @@ const {
   writeState,
 } = require('./lib/session-state');
 const {
+  captureHeadless,
   debugLog,
   getApiVersion,
   getAuthToken,
@@ -118,7 +120,12 @@ async function main() {
     const cwd = getWorkspace(input);
     const firstCallOfTurn =
       !Number.isInteger(input.invocationNum) || input.invocationNum === 0;
-    if (isSubagent(input) || !cwd || !firstCallOfTurn) {
+    if (
+      isSubagent(input) ||
+      !cwd ||
+      !firstCallOfTurn ||
+      (!captureHeadless(settings) && isHeadless(input.conversationId))
+    ) {
       writeOutput({});
       return;
     }

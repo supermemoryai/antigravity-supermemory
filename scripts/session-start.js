@@ -14,6 +14,7 @@ const {
   contextStep,
   getWorkspace,
   injectOutput,
+  isHeadless,
   isSubagent,
   noticeStep,
 } = require('./lib/hook-io');
@@ -27,6 +28,7 @@ const {
   writeState,
 } = require('./lib/session-state');
 const {
+  captureHeadless,
   debugLog,
   getApiVersion,
   getAuthToken,
@@ -110,7 +112,11 @@ async function main() {
     const input = await readStdin();
     conversationId = input.conversationId;
     const cwd = getWorkspace(input);
-    if (isSubagent(input) || !cwd) {
+    if (
+      isSubagent(input) ||
+      !cwd ||
+      (!captureHeadless(settings) && isHeadless(input.conversationId))
+    ) {
       writeOutput({});
       return;
     }

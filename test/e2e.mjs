@@ -91,6 +91,8 @@ describe('agy end to end', { skip: !AGY && 'agy not installed' }, () => {
       SUPERMEMORY_API_URL: api.url,
       SUPERMEMORY_MCP_URL: `${api.url}/mcp`,
       SUPERMEMORY_API_VERSION: 'v5',
+      // Print mode skips Supermemory by default; these runs exercise the opt-in.
+      SUPERMEMORY_CAPTURE_HEADLESS: 'true',
     };
     process.env.HOME = home;
     namespace = require('../scripts/lib/container-tag.js').getNamespace(
@@ -423,6 +425,40 @@ describe('agy end to end', { skip: !AGY && 'agy not installed' }, () => {
     assert.ok(
       saves.every((r) => r.body.id === mainId),
       JSON.stringify(saves.map((r) => r.body.id)),
+    );
+  });
+
+  test('print mode makes no Supermemory calls by default', async () => {
+    const before = api.requests.length;
+    gemini.script.push({ text: 'Headless reply.' });
+    const { SUPERMEMORY_CAPTURE_HEADLESS: _optIn, ...defaults } = env;
+    const run = await agy(
+      [
+        '--settings',
+        '{"modelProvider":"gemini"}',
+        '-p',
+        'How do deploys work in this repo? Check memory first please.',
+        '--output-format',
+        'stream-json',
+      ],
+      defaults,
+      workspace,
+    );
+    assert.equal(
+      run.events.find((e) => e.event === 'result')?.result?.status,
+      'SUCCESS',
+    );
+    const texts = modelTexts(gemini.agentRequests().at(-1));
+    assert.equal(transcriptCount(texts, '<supermemory-context>'), 0);
+    assert.equal(transcriptCount(texts, '<supermemory-recall>'), 0);
+    // Give a detached capture worker time to (not) report.
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    const hookCalls = api.requests
+      .slice(before)
+      .filter((r) => r.url !== '/mcp');
+    assert.deepEqual(
+      hookCalls.map((r) => `${r.method} ${r.url}`),
+      [],
     );
   });
 });
