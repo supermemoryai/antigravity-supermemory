@@ -213,17 +213,27 @@ describe('agy end to end', { skip: !AGY && 'agy not installed' }, () => {
     );
     assert.ok(save, 'turn was not saved');
     assert.equal(save.body.id, conversationId);
-    assert.match(
-      save.body.content,
-      /<\|start\|>user<\|message\|>How do deploys work in this repo\?/,
+    assert.equal(save.headers['x-sm-session'], 'antigravity');
+    assert.equal(save.body.metadata.sm_session_generation, 0);
+    assert.equal(save.body.metadata.sm_session_offset, 0);
+    assert.match(save.body.content, /\n$/);
+    const steps = save.body.content
+      .trimEnd()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    assert.ok(
+      steps.some(
+        (s) =>
+          s.type === 'USER_INPUT' &&
+          s.content.includes('How do deploys work in this repo?'),
+      ),
     );
-    assert.match(
-      save.body.content,
-      /<\|start\|>assistant<\|message\|>Deploys go through scripts\/deploy.sh/,
-    );
-    assert.doesNotMatch(
-      save.body.content,
-      /supermemory-recall|supermemory-context|ADDITIONAL_METADATA/,
+    assert.ok(
+      steps.some(
+        (s) =>
+          s.type === 'PLANNER_RESPONSE' &&
+          s.content?.includes('Deploys go through scripts/deploy.sh'),
+      ),
     );
     assert.equal(save.body.metadata.agent_surface, 'cli');
   });
@@ -313,6 +323,8 @@ describe('agy end to end', { skip: !AGY && 'agy not installed' }, () => {
     );
     assert.ok(save, 'second turn was not saved');
     assert.equal(save.body.id, conversationId);
+    assert.equal(save.body.metadata.sm_session_generation, 0);
+    assert.ok(save.body.metadata.sm_session_offset > 0);
     assert.match(save.body.content, /roll back a bad prod deploy/);
     assert.doesNotMatch(save.body.content, /How do deploys work in this repo/);
   });

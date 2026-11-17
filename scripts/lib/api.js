@@ -79,12 +79,12 @@ function useV5(baseUrl, options, namespace) {
   return true;
 }
 
-function sdkClient(baseUrl, apiKey, options) {
+function sdkClient(baseUrl, apiKey, options, headers = {}) {
   const { Supermemory } = require('../vendor/supermemory.cjs');
   return new Supermemory({
     apiKey,
     baseUrl: baseUrl.replace(/\/+$/, ''),
-    headers: { 'x-sm-source': SOURCE },
+    headers: { 'x-sm-source': SOURCE, ...headers },
     timeoutInSeconds: (options.timeoutMs ?? REQUEST_TIMEOUT_MS) / 1000,
     maxRetries: 0,
   });
@@ -152,6 +152,19 @@ async function searchMemories(baseUrl, apiKey, namespace, query, options = {}) {
   return response.results;
 }
 
+function confirmAccepted(result) {
+  if (
+    typeof result?.id !== 'string' ||
+    !result.id ||
+    !ACCEPTED_STATUSES.includes(result.status)
+  ) {
+    throw new Error(
+      'Supermemory did not confirm document acceptance; capture cursor retained.',
+    );
+  }
+  return result;
+}
+
 async function addMemory(
   baseUrl,
   apiKey,
@@ -173,16 +186,7 @@ async function addMemory(
       },
       sdkOptions(options),
     );
-    if (
-      typeof result?.id !== 'string' ||
-      !result.id ||
-      !ACCEPTED_STATUSES.includes(result.status)
-    ) {
-      throw new Error(
-        'Supermemory did not confirm document acceptance; capture cursor retained.',
-      );
-    }
-    return result;
+    return confirmAccepted(result);
   }
   const body = {
     content,
@@ -208,9 +212,34 @@ async function addMemory(
   return result;
 }
 
+async function addSession(baseUrl, apiKey, namespace, raw, options = {}) {
+  const result = await sdkClient(baseUrl, apiKey, options, {
+    'x-sm-session': SOURCE,
+  }).add(
+    namespace,
+    {
+      content: raw,
+      id: options.id,
+      supportingContext: options.supportingContext,
+      metadata: {
+        sm_source: SOURCE,
+        ...options.metadata,
+        sm_session_generation: options.generation,
+        sm_session_offset: options.offset,
+      },
+      taskType: 'memory',
+      dreaming: 'dynamic',
+    },
+    sdkOptions(options),
+  );
+  return confirmAccepted(result);
+}
+
 module.exports = {
   AGENT_SUPPORTING_CONTEXT,
   addMemory,
+  addSession,
   getProfile,
   searchMemories,
+  useV5,
 };

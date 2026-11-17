@@ -1,5 +1,10 @@
 const fs = require('node:fs');
-const { AGENT_SUPPORTING_CONTEXT, addMemory } = require('./lib/api');
+const {
+  AGENT_SUPPORTING_CONTEXT,
+  addMemory,
+  addSession,
+  useV5,
+} = require('./lib/api');
 const { settleAuth } = require('./lib/auth');
 const { withCaptureLock } = require('./lib/capture-lock');
 const {
@@ -11,6 +16,7 @@ const { getUserFriendlyError } = require('./lib/error-helpers');
 const { saveLastSession } = require('./lib/last-session');
 const { loadProjectConfig } = require('./lib/project-config');
 const { redactSecrets } = require('./lib/redact');
+const { readRawDelta } = require('./lib/session');
 const {
   clearCaptureNotice,
   readState,
@@ -52,6 +58,63 @@ async function runCapture(job) {
     await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
     let outcome = 'no_content';
     const acquired = await withCaptureLock(conversationId, async () => {
+      const projectConfig = loadProjectConfig(cwd);
+      const baseUrl = getBaseUrl(cwd, projectConfig);
+      const apiVersion = getApiVersion(cwd, projectConfig);
+      const namespace = getNamespace(cwd);
+      const metadata = {
+        type: 'session_turn',
+        project: getProjectName(cwd),
+        sm_project_id: getProjectIdentity(cwd),
+        sm_scope: 'personal',
+        sm_capture_mode: 'automatic',
+        agent_surface: surfaceOf(transcriptPath),
+        timestamp: new Date().toISOString(),
+      };
+      const markSaved = (result, details) => {
+        outcome = 'saved';
+        writeState(conversationId, 'capture', {
+          status: 'saved',
+          count: captured + 1,
+        });
+        clearCaptureNotice();
+        try {
+          saveLastSession({ id: result?.id, containerTag: namespace });
+        } catch {}
+        debugLog(settings, 'Conversation turn saved', details);
+      };
+
+      if (useV5(baseUrl, { apiVersion }, namespace)) {
+        const session = readRawDelta(transcriptPath, conversationId);
+        if (!session) return;
+        const apiKey = await getAuthToken(cwd, projectConfig);
+        writeState(conversationId, 'capture', {
+          status: 'saving',
+          count: captured,
+        });
+        const result = await addSession(
+          baseUrl,
+          apiKey,
+          namespace,
+          session.raw,
+          {
+            id: conversationId,
+            generation: session.generation,
+            offset: session.offset,
+            supportingContext: AGENT_SUPPORTING_CONTEXT,
+            metadata,
+            timeoutMs: CAPTURE_TIMEOUT_MS,
+          },
+        );
+        session.commit();
+        markSaved(result, {
+          bytes: Buffer.byteLength(session.raw),
+          generation: session.generation,
+          offset: session.offset,
+        });
+        return;
+      }
+
       const delta = formatNewEntries(transcriptPath, conversationId, cwd);
       if (!delta) return;
       if (delta.skipped) {
@@ -60,32 +123,22 @@ async function runCapture(job) {
       }
       if (!delta.formatted) return;
 
-      const projectConfig = loadProjectConfig(cwd);
       const apiKey = await getAuthToken(cwd, projectConfig);
-      const namespace = getNamespace(cwd);
       writeState(conversationId, 'capture', {
         status: 'saving',
         count: captured,
       });
 
       const result = await addMemory(
-        getBaseUrl(cwd, projectConfig),
+        baseUrl,
         apiKey,
         redactSecrets(delta.formatted),
         namespace,
-        {
-          type: 'session_turn',
-          project: getProjectName(cwd),
-          sm_project_id: getProjectIdentity(cwd),
-          sm_scope: 'personal',
-          sm_capture_mode: 'automatic',
-          agent_surface: surfaceOf(transcriptPath),
-          timestamp: new Date().toISOString(),
-        },
+        metadata,
         {
           id: conversationId,
           supportingContext: AGENT_SUPPORTING_CONTEXT,
-          apiVersion: getApiVersion(cwd, projectConfig),
+          apiVersion,
           timeoutMs: CAPTURE_TIMEOUT_MS,
         },
       );
@@ -93,16 +146,7 @@ async function runCapture(job) {
       // The cursor only moves once the upload is acknowledged, so a failed
       // save is retried with the next turn.
       setCursor(conversationId, delta.cursor);
-      outcome = 'saved';
-      writeState(conversationId, 'capture', {
-        status: 'saved',
-        count: captured + 1,
-      });
-      clearCaptureNotice();
-      try {
-        saveLastSession({ id: result?.id, containerTag: namespace });
-      } catch {}
-      debugLog(settings, 'Conversation turn saved', {
+      markSaved(result, {
         length: delta.formatted.length,
         turns: delta.turns,
       });

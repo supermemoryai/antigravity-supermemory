@@ -31,6 +31,7 @@ const containerTag = require('../scripts/lib/container-tag.js');
 const { redactSecrets, stripPrivate } = require('../scripts/lib/redact.js');
 const { render } = require('../scripts/statusline.js');
 const sessionState = require('../scripts/lib/session-state.js');
+const { readRawDelta } = require('../scripts/lib/session.js');
 
 function sha16(value) {
   return crypto.createHash('sha256').update(value).digest('hex').slice(0, 16);
@@ -240,6 +241,56 @@ describe('transcript', () => {
       fresh.map((e) => e.stepIndex),
       [4, 5],
     );
+  });
+});
+
+describe('raw session delta', () => {
+  const line = (text) =>
+    `${JSON.stringify({ step_index: 0, content: text })}\n`;
+
+  test('sends whole lines only and resends until committed', () => {
+    const file = path.join(tempDir(), 'transcript_full.jsonl');
+    fs.writeFileSync(file, `${line('first')}{"step_index":1,"cont`);
+    const delta = readRawDelta(file, 'raw-partial');
+    assert.equal(delta.raw, line('first'));
+    assert.equal(delta.offset, 0);
+    assert.equal(delta.generation, 0);
+    assert.equal(readRawDelta(file, 'raw-partial').raw, line('first'));
+
+    delta.commit();
+    assert.equal(readRawDelta(file, 'raw-partial'), null);
+    fs.appendFileSync(file, 'ent":"second"}\n');
+    const next = readRawDelta(file, 'raw-partial');
+    assert.equal(next.raw, '{"step_index":1,"content":"second"}\n');
+    assert.equal(next.offset, Buffer.byteLength(line('first')));
+    assert.equal(next.generation, 0);
+  });
+
+  test('starts a new generation when the transcript shrinks', () => {
+    const file = path.join(tempDir(), 'transcript_full.jsonl');
+    fs.writeFileSync(file, `${line('one')}${line('two')}`);
+    readRawDelta(file, 'raw-shrunk').commit();
+    fs.writeFileSync(file, line('compacted'));
+    const delta = readRawDelta(file, 'raw-shrunk');
+    assert.equal(delta.raw, line('compacted'));
+    assert.equal(delta.offset, 0);
+    assert.equal(delta.generation, 1);
+  });
+
+  test('starts a new generation when the sent head was rewritten', () => {
+    const file = path.join(tempDir(), 'transcript_full.jsonl');
+    fs.writeFileSync(file, line('alpha'));
+    readRawDelta(file, 'raw-rewritten').commit();
+    fs.writeFileSync(file, `${line('omega')}${line('next')}`);
+    const delta = readRawDelta(file, 'raw-rewritten');
+    assert.equal(delta.raw, `${line('omega')}${line('next')}`);
+    assert.equal(delta.offset, 0);
+    assert.equal(delta.generation, 1);
+    delta.commit();
+    fs.appendFileSync(file, line('later'));
+    const after = readRawDelta(file, 'raw-rewritten');
+    assert.equal(after.raw, line('later'));
+    assert.equal(after.generation, 1);
   });
 });
 
@@ -718,7 +769,7 @@ describe('hooks', () => {
     );
   });
 
-  test('Stop saves new turns once, under the conversation id', async () => {
+  test('Stop sends the raw transcript once, under the conversation id', async () => {
     setup({ SUPERMEMORY_CAPTURE_SYNC: 'true' });
     const payload = {
       ...common(),
@@ -734,17 +785,24 @@ describe('hooks', () => {
         ),
       ]),
     };
+    const firstTurn = fs.readFileSync(payload.transcriptPath, 'utf8');
     const { json } = await runScript('capture.js', payload, env);
     assert.deepEqual(json, { decision: '' });
     const save = api.requests.find((r) => r.url.endsWith('/document'));
     assert.equal(save.url, `/ns/${containerTag.getNamespace(repo)}/document`);
+    assert.equal(save.headers['x-sm-session'], 'antigravity');
+    assert.equal(save.headers['x-sm-source'], 'antigravity');
+    assert.equal(save.headers.authorization, 'Bearer sm_test_key');
     assert.equal(save.body.id, payload.conversationId);
-    assert.match(
-      save.body.content,
-      /<\|start\|>user<\|message\|>Remember that we deploy/,
-    );
+    assert.equal(save.body.content, firstTurn);
+    assert.equal(save.body.taskType, 'memory');
+    assert.equal(save.body.dreaming, 'dynamic');
+    assert.match(save.body.supportingContext, /coding-agent memory/);
     assert.equal(save.body.metadata.sm_source, 'antigravity');
     assert.equal(save.body.metadata.type, 'session_turn');
+    assert.equal(save.body.metadata.sm_scope, 'personal');
+    assert.equal(save.body.metadata.sm_session_generation, 0);
+    assert.equal(save.body.metadata.sm_session_offset, 0);
 
     api.requests.length = 0;
     await runScript('capture.js', payload, env);
@@ -752,6 +810,44 @@ describe('hooks', () => {
       api.requests.filter((r) => r.url.endsWith('/document')).length,
       0,
     );
+
+    const nextTurn = `${JSON.stringify({ step_index: 2, status: 'DONE', ...userStep('And how do I roll back a bad deploy?') })}\n`;
+    fs.appendFileSync(payload.transcriptPath, nextTurn);
+    await runScript('capture.js', payload, env);
+    const delta = api.requests.find((r) => r.url.endsWith('/document'));
+    assert.equal(delta.body.content, nextTurn);
+    assert.equal(delta.body.metadata.sm_session_generation, 0);
+    assert.equal(
+      delta.body.metadata.sm_session_offset,
+      Buffer.byteLength(firstTurn),
+    );
+  });
+
+  test('Stop keeps the formatted capture on a legacy server', async () => {
+    setup({
+      SUPERMEMORY_CAPTURE_SYNC: 'true',
+      SUPERMEMORY_API_VERSION: 'legacy',
+    });
+    const payload = {
+      ...common(),
+      transcriptPath: writeTranscript(tempDir(), [
+        userStep(
+          'Remember that release notes live in docs/releases in this repo.',
+        ),
+        modelStep(
+          'Noted — release notes go in docs/releases; I will add new entries there.',
+        ),
+      ]),
+    };
+    await runScript('capture.js', payload, env);
+    const save = api.requests.find((r) => r.url === '/v3/documents');
+    assert.equal(save.headers['x-sm-session'], undefined);
+    assert.equal(save.body.customId, payload.conversationId);
+    assert.match(
+      save.body.content,
+      /<\|start\|>user<\|message\|>Remember that release notes/,
+    );
+    assert.equal(save.body.metadata.sm_session_offset, undefined);
   });
 
   test('a failed save keeps the cursor and surfaces at the next SessionStart', async () => {
@@ -777,9 +873,12 @@ describe('hooks', () => {
     assert.match(noticeText(start.json), /last session save failed/);
     api.requests.length = 0;
     await runScript('capture.js', payload, env);
+    const saves = api.requests.filter((r) => r.url.endsWith('/document'));
+    assert.equal(saves.length, 1);
+    assert.equal(saves[0].body.metadata.sm_session_offset, 0);
     assert.equal(
-      api.requests.filter((r) => r.url.endsWith('/document')).length,
-      1,
+      saves[0].body.content,
+      fs.readFileSync(payload.transcriptPath, 'utf8'),
     );
   });
 
