@@ -214,12 +214,19 @@ proxy scopes it to this repository.
 
 ## Privacy
 
-Automatic capture sends new conversation content to Supermemory: your messages and the
-agent's replies, plus tool activity only for tools listed in `includeTools`. Injected
-memory blocks are stripped first, and anything inside `<private>…</private>` is
-replaced with `[REDACTED]`. An offline filter also replaces common credential-shaped
-values (provider tokens, credential assignments, private keys, Bearer tokens and URL
-credentials) with `[REDACTED:…]` markers. It cannot detect every secret.
+Automatic capture sends new conversation content to Supermemory. On the hosted API it
+sends the lines Antigravity appended to the conversation log since the last save,
+exactly as written: your messages, the agent's replies, tool calls and results, and
+model reasoning. Supermemory keeps only your messages and the agent's replies as
+memory, with injected memory blocks stripped, anything inside `<private>…</private>`
+replaced with `[REDACTED]`, and common credential-shaped values (provider tokens,
+credential assignments, private keys, Bearer tokens and URL credentials) replaced with
+`[REDACTED:…]` markers. The log lines themselves are stored unredacted.
+
+On a server using the legacy API, the plugin formats the conversation locally instead:
+your messages and the agent's replies, plus tool activity only for tools listed in
+`includeTools` (`signalExtraction` also applies only here), with the same stripping
+and redaction. Neither filter can detect every secret.
 
 Credentials are stored in `~/.supermemory-antigravity/credentials.json` with `0600`
 permissions. Signing out revokes the refresh token; the connection stays listed under
